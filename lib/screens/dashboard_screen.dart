@@ -6,6 +6,8 @@ import '../services/habit_service.dart';
 import '../services/checkin_service.dart';
 import 'edit_habit_screen.dart';
 import '../services/api_client.dart';
+import 'autopsy_screen.dart';
+
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,6 +23,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _loading = true;
   bool _checkingIn = false;
   int _selectedEnergy = 3;
+  int _selectedIndex = 0;
+  bool _nudgeDismissed = false;
 
   @override
   void initState() {
@@ -40,8 +44,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _loadData() async {
+    
     if (_userId == null) return;
     setState(() => _loading = true);
+    _nudgeDismissed = false;
 
     final checkin = await CheckInService.getTodayCheckin(_userId!);
     final habits = await HabitService.getHabits(_userId!);
@@ -61,18 +67,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _submitCheckin() async {
-    if (_userId == null) return;
-    setState(() => _checkingIn = true);
+  if (_userId == null) return;
+  setState(() => _checkingIn = true);
 
-    final checkin = await CheckInService.createCheckin(_userId!, _selectedEnergy);
+  final checkin = await CheckInService.createCheckin(_userId!, _selectedEnergy);
 
+  if (checkin != null) {
+    // Chain nudge call immediately after successful check-in
+    final nudgeText = await CheckInService.getNudge(_userId!, _selectedEnergy);
     setState(() {
       _checkingIn = false;
-      if (checkin != null) _todayCheckin = checkin;
+      _todayCheckin = checkin.copyWith(nudgeText: nudgeText);
+      _nudgeDismissed = false;
     });
-
-    await _loadData();
+  } else {
+    setState(() => _checkingIn = false);
   }
+
+  await _loadData();
+}
 
   void _showArchiveDialog(BuildContext context, Habit habit) {
   
@@ -470,56 +483,142 @@ Future<void> _resetHabit(Habit habit) async {
     return '🔥 Full';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F0F),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0F0F0F),
-        elevation: 0,
-        title: const Text(
-          '🔥 Ember',
-          style: TextStyle(
-              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+  Widget _buildDashboardBody() {
+  return _loading
+      ? const Center(
+          child: CircularProgressIndicator(color: Color(0xFFFF6B35)))
+      : RefreshIndicator(
+          color: const Color(0xFFFF6B35),
+          backgroundColor: const Color(0xFF1A1A1A),
+          onRefresh: _loadData,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildCheckinSection(),
+                const SizedBox(height: 16),
+                _buildNudgeCard(),     
+                const SizedBox(height: 12),
+                _buildHabitList(),
+              ],
+            ),
+          ),
+        );
+}
+
+Widget _buildNudgeCard() {
+  final nudge = _todayCheckin?.nudgeText;
+  if (nudge == null || nudge.isEmpty || _nudgeDismissed) return const SizedBox();
+
+  final allDone = _habits
+      .where((h) => h.status != 'ARCHIVED')
+      .every((h) => h.status == 'DONE');
+  if (allDone) return const SizedBox();
+
+  return Container(
+  margin: const EdgeInsets.only(bottom: 16),
+  decoration: BoxDecoration(
+    color: const Color(0xFF1A1A1A),
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(color: const Color(0xFF2A2A2A)),
+  ),
+  child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Container(
+        width: 3,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFF6B35),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(12),
+            bottomLeft: Radius.circular(12),
+          ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: Color(0xFF888888)),
-            onPressed: _logout,
-          )
-        ],
       ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFFFF6B35)))
-          : RefreshIndicator(
-              color: const Color(0xFFFF6B35),
-              backgroundColor: const Color(0xFF1A1A1A),
-              onRefresh: _loadData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildCheckinSection(),
-                    const SizedBox(height: 28),
-                    _buildHabitList(),
-                  ],
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('✨', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  nudge,
+                  style: const TextStyle(
+                      color: Color(0xFFCCCCCC), fontSize: 13, height: 1.5),
                 ),
               ),
-            ),
-    
-    floatingActionButton: FloatingActionButton(
-  backgroundColor: const Color(0xFFFF6B35),
-  onPressed: () async {
-    final result = await Navigator.pushNamed(context, '/add-habit');
-    if (result == true) await _loadData(); // refresh on return
-  },
-  child: const Icon(Icons.add, color: Colors.white),
-),
+              GestureDetector(
+                onTap: () => setState(() => _nudgeDismissed = true),
+                child: const Padding(
+                  padding: EdgeInsets.only(left: 8, top: 2),
+                  child: Icon(Icons.close, color: Color(0xFF555555), size: 16),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ],
+  ),
 );
-  }
+}
+
+  @override
+Widget build(BuildContext context) {
+  return Scaffold(
+    backgroundColor: const Color(0xFF0F0F0F),
+    appBar: AppBar(
+      backgroundColor: const Color(0xFF0F0F0F),
+      elevation: 0,
+      title: const Text(
+        '🔥 Ember',
+        style: TextStyle(
+            color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.logout, color: Color(0xFF888888)),
+          onPressed: _logout,
+        )
+      ],
+    ),
+    body: _selectedIndex == 0 ? _buildDashboardBody() : AutopsyScreen(userId: _userId!),
+    bottomNavigationBar: BottomNavigationBar(
+      backgroundColor: const Color(0xFF1A1A1A),
+      selectedItemColor: const Color(0xFFFF6B35),
+      unselectedItemColor: const Color(0xFF555555),
+      currentIndex: _selectedIndex,
+      onTap: (index) => setState(() => _selectedIndex = index),
+      items: const [
+        BottomNavigationBarItem(
+          icon: Icon(Icons.home_outlined),
+          activeIcon: Icon(Icons.home),
+          label: 'Home',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.bar_chart_outlined),
+          activeIcon: Icon(Icons.bar_chart),
+          label: 'Autopsy',
+        ),
+      ],
+    ),
+    floatingActionButton: _selectedIndex == 0
+        ? FloatingActionButton(
+            backgroundColor: const Color(0xFFFF6B35),
+            onPressed: () async {
+              final result = await Navigator.pushNamed(context, '/add-habit');
+              if (result == true) await _loadData();
+            },
+            child: const Icon(Icons.add, color: Colors.white),
+          )
+        : null,
+  );
+}
 
   Widget _buildCheckinSection() {
     if (_todayCheckin != null) {
@@ -572,18 +671,18 @@ Future<void> _resetHabit(Habit habit) async {
                 ),
               ],
             ),
-            if (_todayCheckin!.nudgeText != null) ...[
-              const SizedBox(height: 14),
-              const Divider(color: Color(0xFF2A2A2A)),
-              const SizedBox(height: 10),
-              Text(
-                _todayCheckin!.nudgeText!,
-                style: const TextStyle(
-                    color: Color(0xFFCCCCCC),
-                    fontSize: 13,
-                    height: 1.5),
-              ),
-            ],
+            // if (_todayCheckin!.nudgeText != null) ...[
+            //   const SizedBox(height: 14),
+            //   const Divider(color: Color(0xFF2A2A2A)),
+            //   const SizedBox(height: 10),
+            //   Text(
+            //     _todayCheckin!.nudgeText!,
+            //     style: const TextStyle(
+            //         color: Color(0xFFCCCCCC),
+            //         fontSize: 13,
+            //         height: 1.5),
+            //   ),
+            // ],
           ],
         ),
       );
@@ -881,8 +980,10 @@ Future<void> _resetHabit(Habit habit) async {
     ),
     );
   }
-
+  
 }
+
+
 class _CompletionOption {
   final String emoji;
   final String label;

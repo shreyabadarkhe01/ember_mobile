@@ -11,6 +11,15 @@ class CheckIn {
     required this.checkInDate,
   });
 
+  CheckIn copyWith({String? nudgeText}) {
+  return CheckIn(
+    id: id,
+    energyScore: energyScore,
+    nudgeText: nudgeText ?? this.nudgeText,
+    checkInDate: checkInDate,
+  );
+}
+
   factory CheckIn.fromJson(Map<String, dynamic> json) {
     // checkInDate comes as [2026, 5, 30] from backend
     String dateStr;

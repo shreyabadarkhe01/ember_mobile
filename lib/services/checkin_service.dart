@@ -34,4 +34,22 @@ class CheckInService {
   }
   return null;
 }
+
+static Future<String?> getNudge(int userId, int energyScore) async {
+  try {
+    final response = await ApiClient.post(
+      '/users/$userId/ai/nudge',
+      {'energyScore': energyScore},
+    );
+    print('=== nudge status: ${response.statusCode} body: ${response.body} ===');
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['nudge'] as String?;
+    }
+  } catch (e) {
+    print('Nudge call failed: $e');
+  }
+  return null;
+}
+
 }
